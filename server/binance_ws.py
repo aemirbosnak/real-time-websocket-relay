@@ -1,37 +1,42 @@
 import asyncio
 import websockets
 import json
-from server_ws import push_to_client  # Import push_to_client from client_ws_server
+from server_ws import broadcast
 
-BINANCE_WS_URL = "wss://fstream.binance.com/ws"
+latest_data = {}
 
-# Store the last processed bid and ask data
-latest_data = {"b": None, "a": None}  # 'b' is best bid, 'a' is best ask
-
-
-async def binance_websocket(symbol: str):
-    url = f"{BINANCE_WS_URL}/{symbol.lower()}@bookTicker"
+async def fetch_binance_data(symbol: str):
+    url = f"wss://fstream.binance.com/ws/{symbol.lower()}@bookTicker"
 
     async with websockets.connect(url) as websocket:
-        print(f"Connected to Binance WebSocket: {url}")
-
         while True:
             try:
-                message = await websocket.recv()
-                data = json.loads(message)
+                data = await websocket.recv()
+                data = json.loads(data)
+                await process_data(data)
+            except Exception as e:
+                print(f"Error fetching data for {symbol}: {e}")
+                break
 
-                best_bid = data["b"]
-                best_ask = data["a"]
+async def process_data(data):
+    symbol = data["s"]
+    # Only store the necessary fields
+    new_data = {
+        "e": data["e"],
+        "s": symbol,
+        "b": data["b"],
+        "a": data["a"],
+    }
 
-                # Compare with the previous data
-                if best_bid != latest_data["b"] or best_ask != latest_data["a"]:
-                    latest_data["b"] = best_bid
-                    latest_data["a"] = best_ask
+    # Check if the data has changed
+    if symbol not in latest_data or latest_data[symbol]["b"] != new_data["b"] or latest_data[symbol]["a"] != new_data["a"]:
+        latest_data[symbol] = new_data
+        print(f"Updated data for {symbol}: {new_data}")
+        # Here you would push the update to subscribed clients
+        await push_to_client(new_data)
 
-                    # If the data has changed, push it to clients
-                    await push_to_client(data)
+async def push_to_client(data):
+    await broadcast(data)
 
-            except websockets.ConnectionClosed:
-                print("Connection to Binance closed, reconnecting...")
-                await asyncio.sleep(5)
-                continue
+def start_binance_websocket(symbol):
+    asyncio.run(fetch_binance_data(symbol))
