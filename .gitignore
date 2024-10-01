@@ -1,2 +1,5 @@
 .idea/
 task.pdf
+
+__pycache__/
+
